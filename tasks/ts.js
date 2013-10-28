@@ -437,6 +437,40 @@ function pluginFn(grunt) {
     }
 
     /////////////////////////////////////////////////////////////////////
+    // AngularJS templateCache
+    ////////////////////////////////////////////////////////////////////
+    // templateCache processing function
+    function generateTemplateCache(src, dest, basePath) {
+        if (!src.length)
+            return;
+
+        // Resolve the relative path from basePath to each src file
+        var relativePaths = _.map(src, function (anHtmlFile) {
+            return 'text!' + makeReferencePath(basePath, anHtmlFile);
+        });
+        var fileNames = _.map(src, function (anHtmlFile) {
+            return path.basename(anHtmlFile);
+        });
+        var fileVarialbeName = function (anHtmlFile) {
+            return anHtmlFile.split('.').join('_').split('-').join('_');
+        };
+        var fileVariableNames = _.map(fileNames, fileVarialbeName);
+
+        var templateCacheTemplate = _.template('// You must have requirejs + text plugin loaded for this to work.' + eol + 'var define;' + eol + 'define([<%=relativePathSection%>],function(<%=fileNameVariableSection%>){' + eol + 'angular.module("ng").run(["$templateCache",function($templateCache) {' + eol + '<%=templateCachePut%>' + eol + '}]);' + eol + '});');
+
+        var relativePathSection = '"' + relativePaths.join('",' + eol + '"') + '"';
+        var fileNameVariableSection = fileVariableNames.join(',' + eol);
+
+        var templateCachePutTemplate = _.template('$templateCache.put("<%= fileName %>", <%=fileVariableName%>);');
+        var templateCachePut = _.map(fileNames, function (fileName) {
+            return templateCachePutTemplate({ fileName: fileName, fileVariableName: fileVarialbeName(fileName) });
+        }).join(eol);
+
+        var fileContent = templateCacheTemplate({ relativePathSection: relativePathSection, fileNameVariableSection: fileNameVariableSection, templateCachePut: templateCachePut });
+        fs.writeFileSync(dest, fileContent);
+    }
+
+    /////////////////////////////////////////////////////////////////////
     // The grunt task
     ////////////////////////////////////////////////////////////////////
     // Note: this funciton is called once for each target
@@ -464,6 +498,8 @@ function pluginFn(grunt) {
         //console.log(this.files[0]); // An array of target files ( only one in our case )
         //console.log(this.files[0].src); // a getter for a resolved list of files
         //console.log(this.files[0].orig.src); // The original glob / array / !array / <% array %> for files. Can be very fancy :)
+        // NOTE: to access the specified src files we use
+        // currenttaks.data as that is the raw (non interpolated) string that we reinterpolate ourselves in case the file system as changed since this task was started
         // this.files[0] is actually a single in our case as we gave examples of  one source / out per target
         this.files.forEach(function (target) {
             // Create a reference file?
@@ -563,6 +599,17 @@ function pluginFn(grunt) {
                     generatedHtmlFiles = _.map(htmlFiles, function (filename) {
                         return compileHTML(filename);
                     });
+                }
+
+                if (currenttask.data.templateCache) {
+                    if (!currenttask.data.templateCache.src || !currenttask.data.templateCache.dest || !currenttask.data.templateCache.baseUrl) {
+                        grunt.log.writeln('templateCache : src, dest, baseUrl must be specified if templateCache option is used'.red);
+                    } else {
+                        var templateCacheSrc = grunt.file.expand(currenttask.data.templateCache.src);
+                        var templateCacheDest = path.resolve(target.templateCache.dest);
+                        var templateCacheBasePath = path.resolve(target.templateCache.baseUrl);
+                        generateTemplateCache(templateCacheSrc, templateCacheDest, templateCacheBasePath);
+                    }
                 }
 
                 // Reexpand the original file glob:

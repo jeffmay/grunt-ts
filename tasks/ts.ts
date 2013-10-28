@@ -21,6 +21,11 @@ interface ITargetOptions {
     html: string[];  // if specified this is used to generate typescript files with a single variable which contains the content of the html
     watch: string; // if specified watches all files in this directory for changes. 
     amdloader: string;  // if specified creates a js file to load all the generated typescript files in order using requirejs + order
+    templateCache: { // if specified search thought all the html file at this location
+        src: string[];
+        dest: string;
+        baseUrl: string;
+    }
 }
 
 interface ITaskOptions {
@@ -73,7 +78,7 @@ function pluginFn(grunt: IGrunt) {
             (new Array(depth + 1)).join("../../"),
             "../node_modules/typescript/bin");
         if (path.resolve(currentPath, "node_modules/typescript/bin").length > targetPath.length) {
-            return;
+            return null;
         }
         if (fs.existsSync(path.resolve(targetPath, "typescript.js"))) {
             return targetPath;
@@ -125,9 +130,9 @@ function pluginFn(grunt: IGrunt) {
 
         // Create a temp last command file 
         var tempfilename = 'tscommand.tmp.txt';
-        fs.writeFileSync(tempfilename, cmd);       
-        tscExecCommand = tscExecCommand + ' @'+tempfilename;
-                
+        fs.writeFileSync(tempfilename, cmd);
+        tscExecCommand = tscExecCommand + ' @' + tempfilename;
+
         var result = exec(tscExecCommand);
         return result;
     }
@@ -276,7 +281,7 @@ function pluginFn(grunt: IGrunt) {
                         toreturn.before.push(filename);
                         break;
                     case referenceFileLoopState.unordered:
-                        if(endsWith(line, generatedSignature)) {
+                        if (endsWith(line, generatedSignature)) {
                             toreturn.generated.push(filename);
                         }
                         else {
@@ -408,7 +413,7 @@ function pluginFn(grunt: IGrunt) {
                 // For these we will use just one require call
                 var unorderFileNames = files.unordered.join('",' + eol + '\t\t  "');
                 subitem = singleRequireTemplate({ filename: '"' + unorderFileNames + '"', subitem: subitem });
-                
+
                 // Next the generated files 
                 // For these we will use just one require call
                 var generatedFileNames = files.generated.join('",' + eol + '\t\t  "');
@@ -476,14 +481,49 @@ function pluginFn(grunt: IGrunt) {
     }
 
     /////////////////////////////////////////////////////////////////////    
+    // AngularJS templateCache
+    ////////////////////////////////////////////////////////////////////
+
+    // templateCache processing function
+
+    function generateTemplateCache(src: string[], dest: string, basePath: string) {
+
+        if (!src.length) return;
+
+        // Resolve the relative path from basePath to each src file 
+        var relativePaths: string[] = _.map(src, (anHtmlFile) => 'text!' + makeReferencePath(basePath, anHtmlFile));
+        var fileNames: string[] = _.map(src, (anHtmlFile) => path.basename(anHtmlFile));
+        var fileVarialbeName = (anHtmlFile) => anHtmlFile.split('.').join('_').split('-').join('_');
+        var fileVariableNames: string[] = _.map(fileNames, fileVarialbeName);
+
+
+        var templateCacheTemplate = _.template('// You must have requirejs + text plugin loaded for this to work.'
+            + eol + 'var define;'
+            + eol + 'define([<%=relativePathSection%>],function(<%=fileNameVariableSection%>){'
+            + eol + 'angular.module("ng").run(["$templateCache",function($templateCache) {'
+            + eol + '<%=templateCachePut%>'
+            + eol + '}]);'
+            + eol + '});');
+
+        var relativePathSection = '"' + relativePaths.join('",' + eol + '"') + '"';
+        var fileNameVariableSection = fileVariableNames.join(',' + eol);
+
+        var templateCachePutTemplate = _.template('$templateCache.put("<%= fileName %>", <%=fileVariableName%>);');
+        var templateCachePut = _.map(fileNames, (fileName) => templateCachePutTemplate({ fileName: fileName, fileVariableName: fileVarialbeName(fileName) })).join(eol);
+
+        var fileContent = templateCacheTemplate({ relativePathSection: relativePathSection, fileNameVariableSection: fileNameVariableSection, templateCachePut: templateCachePut });
+        fs.writeFileSync(dest, fileContent);
+    }
+
+    /////////////////////////////////////////////////////////////////////    
     // The grunt task 
     ////////////////////////////////////////////////////////////////////
 
     // Note: this funciton is called once for each target 
     // so task + target options are a bit blurred inside this function 
-    grunt.registerMultiTask('ts', 'Compile TypeScript files', function () {
+    grunt.registerMultiTask('ts', 'Compile TypeScript files', () => {
 
-        var currenttask: ITask = this;
+        var currenttask: grunt.task.IMultiTask<ITargetOptions> = <grunt.task.IMultiTask<ITargetOptions>> this;
 
         // setup default options 
         var options = currenttask.options<ITaskOptions>({
@@ -505,6 +545,9 @@ function pluginFn(grunt: IGrunt) {
         //console.log(this.files[0]); // An array of target files ( only one in our case )
         //console.log(this.files[0].src); // a getter for a resolved list of files 
         //console.log(this.files[0].orig.src); // The original glob / array / !array / <% array %> for files. Can be very fancy :) 
+
+        // NOTE: to access the specified src files we use
+        // currenttaks.data as that is the raw (non interpolated) string that we reinterpolate ourselves in case the file system as changed since this task was started 
 
         // this.files[0] is actually a single in our case as we gave examples of  one source / out per target
         this.files.forEach(function (target: ITargetOptions) {
@@ -608,6 +651,19 @@ function pluginFn(grunt: IGrunt) {
                     var htmlFiles = grunt.file.expand(currenttask.data.html);
                     generatedHtmlFiles = _.map(htmlFiles, (filename) => compileHTML(filename));
                 }
+                // The template cache files do not go into generated files. 
+                // You are free to generate a `ts OR js` file, both should just work 
+                if (currenttask.data.templateCache) {
+                    if (!currenttask.data.templateCache.src || !currenttask.data.templateCache.dest || !currenttask.data.templateCache.baseUrl) {
+                        grunt.log.writeln('templateCache : src, dest, baseUrl must be specified if templateCache option is used'.red);
+                    }
+                    else {
+                        var templateCacheSrc = grunt.file.expand(currenttask.data.templateCache.src); // manual reinterpolation
+                        var templateCacheDest = path.resolve(target.templateCache.dest);
+                        var templateCacheBasePath = path.resolve(target.templateCache.baseUrl);
+                        generateTemplateCache(templateCacheSrc, templateCacheDest, templateCacheBasePath);
+                    }
+                }
 
                 // Reexpand the original file glob: 
                 var files = grunt.file.expand(currenttask.data.src);
@@ -686,6 +742,10 @@ function pluginFn(grunt: IGrunt) {
         if (!watch) {
             return success;
         }
+        else {
+            return false;
+        }
     });
-};
+}
+
 export = pluginFn;

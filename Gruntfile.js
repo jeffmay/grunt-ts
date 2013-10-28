@@ -62,6 +62,17 @@ module.exports = function (grunt) {
                 amdloader: 'test/amdloader/js/loader.js',
               //  watch: 'test/amdloader'
             },
+            templatecache: {
+                src: ['test/templatecache/**/*.ts'],         
+                reference: 'test/templatecache/ts/reference.ts',                
+                amdloader: 'test/templatecache/js/loader.js',                
+                outDir: 'test/templatecache/js',
+                templateCache: {
+                    baseUrl : 'test/templatecache/js/',
+                    src: ['test/templatecache/js/**/*.html'],
+                    dest: 'test/templatecache/js/templateCache.js',
+                },
+            },
             fail: {                        // a designed to fail target
                 src: ["test/fail/**/*.ts"],
                 watch: 'test',                
@@ -79,7 +90,6 @@ module.exports = function (grunt) {
 
     grunt.loadNpmTasks("grunt-contrib-clean");    
     
-    grunt.registerTask("test", ["clean", "ts:htmltest"]);
     grunt.registerTask("test", ["clean", "ts:htmltest", "ts:definitelyTypedTest"]);
     grunt.registerTask("default", ["test"]);
 
