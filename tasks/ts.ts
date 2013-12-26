@@ -92,11 +92,11 @@ function timeIt<R>(makeIt: () => R): {
     /**
      * The result of the computation
      */
-        it: R
+    it: R
     /**
      * Time in milliseconds.
      */
-        time: number
+    time: number
 } {
     var starttime = new Date().getTime();
     var it = makeIt();
@@ -140,7 +140,7 @@ function pluginFn(grunt: IGrunt) {
         return resolveTypeScriptBinPath(currentPath, ++depth);
     }
     function getTsc(binPath: string): string {
-        return '"' + binPath + '/' + 'tsc" ';
+        return '"' + binPath + '/' + 'tsc"';
     }
     var exec = shell.exec;
     var cwd = path.resolve(".");
@@ -149,10 +149,7 @@ function pluginFn(grunt: IGrunt) {
     // Blindly runs the tsc task using provided options
     function compileAllFiles(files: string[], target: ITargetOptions, task: ITaskOptions): ICompileResult {
 
-        var filepath: string = files.join(' ');
-        var tscExecCommand = 'node ' + tsc;
-
-        var cmd = filepath;
+        var cmd: string = files.join(' ');
         // boolean options
         if (task.sourceMap)
             cmd = cmd + ' --sourcemap';
@@ -186,9 +183,14 @@ function pluginFn(grunt: IGrunt) {
             cmd = cmd + ' --mapRoot ' + task.mapRoot;
         }
 
+        var tscExecCommand = 'node ' + tsc + ' ' + cmd;
+
         // To debug the tsc command
         if (task.verbose) {
-            console.log(cmd);
+            console.log(tscExecCommand.yellow);
+        }
+        else {
+            grunt.log.verbose.writeln(cmd.yellow);
         }
 
         // Create a temp last command file
@@ -418,12 +420,15 @@ function pluginFn(grunt: IGrunt) {
 
         // Read the original file if it exists
         if (fs.existsSync(referenceFile)) {
-            grunt.log.verbose.writeln('Generating amdloader from reference file "' + referenceFile + '"...');
+            grunt.log.verbose.writeln('Generating amdloader from reference file ' + referenceFile);
             var files = getReferencesInOrder(referenceFile, referencePath);
 
             // Filter.d.ts,
             if (files.all.length > 0) {
                 grunt.log.verbose.writeln('Files: ' + files.all.map((f) => f.cyan).join(', '));
+            }
+            else {
+                grunt.warn("No files in reference file: " + referenceFile);
             }
             if (files.before.length > 0) {
                 files.before = _.filter(files.before, (file) => { return !endsWith(file, '.d.ts'); });
@@ -498,15 +503,14 @@ function pluginFn(grunt: IGrunt) {
 
 
                 // Write out a binary file:
-                grunt.log.verbose.writeln('Writing binary amdloader...');
                 var binaryTemplate = _.template('define(["<%= filenames %>"],function () {});');
                 var binaryFilesNames = files.before.concat(files.generated.concat(files.unordered.concat(files.after)));
                 var binaryContent = binaryTemplate({ filenames: binaryFilesNames.join('","') });
                 var binFileExtension = '.bin.js';
                 var loaderFileWithoutExtension = path.dirname(loaderFile) + pathSeperator + path.basename(loaderFile, '.js');
-                var binFilename = loaderFileWithoutExtension + binFileExtension
+                var binFilename = loaderFileWithoutExtension + binFileExtension;
                 fs.writeFileSync(binFilename, binaryContent);
-                grunt.log.verbose.writeln('Finished writing binary amdloader to ' + binFilename);
+                grunt.log.verbose.writeln('Binary AMD loader written ' + binFilename.cyan);
 
                 //
                 // Notice that we build inside out in the below sections:
@@ -544,7 +548,7 @@ function pluginFn(grunt: IGrunt) {
 
                 // Finally write it out
                 fs.writeFileSync(loaderFile, output);
-                grunt.log.verbose.writeln('AMD loader written to ' + loaderFile);
+                grunt.log.verbose.writeln('AMD loader written ' + loaderFile.cyan);
             }
         }
         else {
